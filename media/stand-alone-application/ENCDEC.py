@@ -14,7 +14,16 @@ from secretsharing import SecretSharer
 
 BS = 16
 pad = lambda s: s + (BS - len(s) % BS) * chr(BS - len(s) % BS).encode()
-unpad = lambda s: s[:-ord(s[len(s)-1:])]
+def unpad(s):
+	# validate before trusting padding bytes; rejects wrong-key garbage
+	if not s:
+		raise ValueError('invalid padding')
+	pad_len = s[-1]
+	if pad_len < 1 or pad_len > BS:
+		raise ValueError('invalid padding')
+	if s[-pad_len:] != bytes([pad_len]) * pad_len:
+		raise ValueError('invalid padding')
+	return s[:-pad_len]
 
 
 def shamirs_split(file_object):
@@ -52,8 +61,18 @@ class AESCipher(object):
         return base64.b64encode(enc).decode('utf-8')
 
     def decrypt(self, enc):
-        enc = base64.b64decode(enc)
+        try:
+            enc = base64.b64decode(enc)
+        except Exception:
+            raise ValueError(
+                'Decryption failed: the file is not a valid encrypted text file '
+                '(expected base64 ciphertext)') from None
         iv = enc[:AES.block_size]
         cipher = AES.new(self.key.encode("utf8"), AES.MODE_CBC, iv)
         dec = cipher.decrypt(enc[AES.block_size:])
-        return unpad(dec).decode('utf-8')
+        try:
+            return unpad(dec).decode('utf-8')
+        except Exception as exc:
+            raise ValueError(
+                'Decryption failed: the shared key does not match the key pair this file '
+                'was encrypted for, or the ciphertext is corrupted') from None

@@ -24,8 +24,18 @@ def _pad(s):
 
 
 def _unpad(s):
-    """Strip the PKCS#7 padding from a decrypted byte-string."""
-    return s[:-ord(s[len(s)-1:])]
+    """Strip and verify PKCS#7 padding. A wrong key or corrupted
+    ciphertext makes CBC produce garbage whose last byte almost never
+    encodes valid padding, so this check is what turns mismatched keys
+    into a clean error instead of silent garbage output."""
+    if not s:
+        raise ValueError('invalid padding')
+    pad_len = s[-1]
+    if pad_len < 1 or pad_len > BS:
+        raise ValueError('invalid padding')
+    if s[-pad_len:] != bytes([pad_len]) * pad_len:
+        raise ValueError('invalid padding')
+    return s[:-pad_len]
 
 
 class AESCipher(object):
@@ -47,11 +57,21 @@ class AESCipher(object):
         return base64.b64encode(enc).decode('utf-8')
 
     def decrypt(self, enc):
-        enc = base64.b64decode(enc)
+        try:
+            enc = base64.b64decode(enc)
+        except Exception:
+            raise ValueError(
+                'Decryption failed: the file is not a valid encrypted text file '
+                '(expected base64 ciphertext)') from None
         iv = enc[:AES.block_size]
         cipher = AES.new(self.key.encode("utf8"), AES.MODE_CBC, iv)
         dec = cipher.decrypt(enc[AES.block_size:])
-        return _unpad(dec).decode('utf-8')
+        try:
+            return _unpad(dec).decode('utf-8')
+        except Exception as exc:
+            raise ValueError(
+                'Decryption failed: the shared key does not match the key pair this file '
+                'was encrypted for, or the ciphertext is corrupted') from None
 
 
 def derive_key(my_private, their_public):
