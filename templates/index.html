@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Thrain — key exchange &amp; file transfer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ------------------------------------------------------------------
+   TOKENS — the palette of an instrument panel, not a dashboard.
+   deep petrol field / chassis panels / warm paper text /
+   amber signal (the only accent that moves) / vital teal / brick red.
+   ------------------------------------------------------------------ */
+:root {
+  --bg:      #0F1B24;   /* deep petrol ink field */
+  --panel:   #16242F;   /* raised chassis */
+  --edge:    #27394A;   /* hairline chassis line */
+  --paper:   #E7E2D6;   /* warm lab-paper text */
+  --amber:   #E8A33D;   /* signal / carrier — actions + the handshake */
+  --teal:    #62B6AF;   /* vital: success, derived keys */
+  --brick:   #C96A5B;   /* fault: errors */
+  --mute:    #8CA3B3;   /* dulled data traces */
+  --display: "Space Grotesk", "Segoe UI", sans-serif;
+  --mono:    "IBM Plex Mono", Consolas, "Courier New", monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--paper);
+  font-family: var(--mono);
+  font-size: 15px;
+  line-height: 1.55;
+  min-height: 100vh;
+}
+::selection { background: var(--amber); color: var(--bg); }
+:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+
+.shell { max-width: 960px; margin: 0 auto; padding: 0 20px 64px; }
+
+/* ------------------------------------------------------------------
+   RAIL — brand + single-page nav
+   ------------------------------------------------------------------ */
+.rail {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap;
+  padding: 18px 0 14px;
+  border-bottom: 1px solid var(--edge);
+}
+.brand { display: flex; align-items: baseline; gap: 10px; }
+.brand-mark { color: var(--amber); letter-spacing: -2px; font-size: 18px; }
+.brand-name {
+  font-family: var(--display); font-weight: 700; font-size: 20px;
+  letter-spacing: 3px; text-transform: uppercase;
+}
+.brand-tag { color: var(--mute); font-size: 11px; letter-spacing: 1px; }
+.nav { display: flex; flex-wrap: wrap; gap: 2px; }
+.nav button {
+  appearance: none; border: 1px solid transparent; background: transparent;
+  color: var(--mute); font-family: var(--mono); font-size: 13px;
+  letter-spacing: 1px; text-transform: uppercase;
+  padding: 8px 12px; cursor: pointer;
+}
+.nav button:hover { color: var(--paper); }
+.nav button.active { color: var(--amber); border-color: var(--edge); background: var(--panel); }
+
+/* ------------------------------------------------------------------
+   THE HANDSHAKE — the one orchestrated moment on this page.
+   Two peers, one shared modulus; when a key is derived, amber pulses
+   travel from both ends and the middle node lights vital teal.
+   ------------------------------------------------------------------ */
+.handshake {
+  display: flex; align-items: center; gap: 0;
+  padding: 22px 8px 8px; user-select: none;
+}
+.hs-node, .hs-key {
+  font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+  color: var(--mute); text-align: center; line-height: 1.3;
+  white-space: nowrap;
+}
+.hs-node { min-width: 48px; }
+.hs-key { min-width: 76px; }
+.hs-key b { display:block; color: var(--mute); font-weight: 400; }
+.hs-run {
+  flex: 1; position: relative; height: 2px; background: var(--edge);
+  overflow: hidden;
+}
+.dash { position: absolute; top: 0; height: 2px; width: 28%; background: var(--amber); opacity: 0; }
+.d1 { left: 0; }  .d2 { left: 26%; }
+.d3 { right: 26%; } .d4 { right: 0; }
+.handshake.exchanging .d1, .handshake.exchanging .d2 { animation: pulse-in 1s ease 1 forwards; }
+.handshake.exchanging .d2 { animation-delay: .15s; }
+.handshake.exchanging .d3, .handshake.exchanging .d4 { animation: pulse-in 1s ease 1 forwards; }
+.handshake.exchanging .d3 { animation-delay: .15s; }
+@keyframes pulse-in {
+  0%   { opacity: 0; transform: translateX(0); }
+  25%  { opacity: 1; transform: translateX(0); }
+  100% { opacity: 0; transform: translateX(255%); }
+}
+.handshake.exchanging .d3, .handshake.exchanging .d4 { animation-name: pulse-in-rev; }
+@keyframes pulse-in-rev {
+  0%   { opacity: 0; transform: translateX(0); }
+  25%  { opacity: 1; transform: translateX(0); }
+  100% { opacity: 0; transform: translateX(-255%); }
+}
+.handshake .hs-key.derived b { color: var(--teal); }
+.handshake .hs-key.derived { border: 1px solid var(--teal); color: var(--teal); padding: 2px 4px; }
+@media (prefers-reduced-motion: reduce) {
+  .dash { animation: none !important; opacity: 0 !important; }
+}
+
+/* ------------------------------------------------------------------
+   MILESTONE STRIP — the flow is genuinely sequential:
+   register -> my keys -> exchange -> encrypt -> send
+   ------------------------------------------------------------------ */
+.milestones {
+  display: flex; gap: 6px; margin: 6px 0 26px;
+  padding: 10px 12px; background: var(--panel);
+  border: 1px solid var(--edge);
+}
+.mstep { flex: 1; font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase;
+  color: var(--mute); display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.mstep::before {
+  content: ""; width: 8px; height: 8px; border: 1px solid var(--edge);
+  display: inline-block; flex: none;
+}
+.mstep.active { color: var(--amber); }
+.mstep.active::before { border-color: var(--amber); background: var(--amber); }
+.mstep.done { color: var(--teal); }
+.mstep.done::before { border-color: var(--teal); background: var(--teal); }
+
+/* ------------------------------------------------------------------
+   VIEWS + PANELS
+   ------------------------------------------------------------------ */
+.view { display: none; }
+.view.active { display: block; animation: settle .18s ease; }
+@keyframes settle { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .view.active { animation: none; } }
+
+.panel {
+  background: var(--panel); border: 1px solid var(--edge);
+  padding: 26px 28px; margin-bottom: 22px;
+}
+.panel h1 { margin: 0 0 6px; font-family: var(--display); font-weight: 500;
+  font-size: 22px; letter-spacing: 1px; }
+.panel h1 b { color: var(--amber); font-weight: 700; }
+.panel .lede { margin: 0 0 22px; color: var(--mute); font-size: 13px; }
+.panel .lede code { color: var(--paper); }
+
+label.field { display: block; margin-bottom: 16px; }
+label.field span { display: block; font-size: 12px; letter-spacing: 1.5px;
+  text-transform: uppercase; color: var(--mute); margin-bottom: 6px; }
+label.field span em { text-transform: none; font-style: normal; color: var(--amber); }
+input[type=text], input[type=password], textarea, select {
+  width: 100%; background: var(--bg); color: var(--paper);
+  border: 1px solid var(--edge); padding: 10px 12px;
+  font-family: var(--mono); font-size: 14px; border-radius: 0;
+}
+input:focus, textarea:focus, select:focus { border-color: var(--amber); }
+textarea.key-input { min-height: 84px; resize: vertical; }
+.file-pick {
+  display: flex; align-items: center; gap: 12px; padding: 12px 14px;
+  border: 1px dashed var(--edge); color: var(--mute); font-size: 13px;
+}
+.file-pick input[type=file] { font-family: var(--mono); color: var(--paper); font-size: 13px; flex: 1; }
+.row2 { display: flex; gap: 16px; flex-wrap: wrap; }
+.row2 > div { flex: 1; min-width: 240px; }
+
+button.action {
+  appearance: none; background: var(--amber); color: var(--bg);
+  border: none; font-family: var(--mono); font-weight: 600; font-size: 14px;
+  letter-spacing: 1.5px; text-transform: uppercase;
+  padding: 12px 22px; cursor: pointer;
+}
+button.action:hover { filter: brightness(1.08); }
+button.action:disabled { opacity: .45; cursor: wait; }
+button.ghost {
+  appearance: none; background: transparent; color: var(--paper);
+  border: 1px solid var(--edge); font-family: var(--mono); font-size: 13px;
+  letter-spacing: 1px; text-transform: uppercase; padding: 10px 16px; cursor: pointer;
+}
+button.ghost:hover { border-color: var(--amber); color: var(--amber); }
+
+.status { font-size: 13px; min-height: 20px; margin-top: 14px; }
+.status.ok { color: var(--teal); }
+.status.err { color: var(--brick); }
+
+/* shared secret / key reveal */
+.keyreveal { border: 1px solid var(--teal); padding: 18px; margin-top: 18px;
+  background: var(--bg); }
+.keyreveal .k-label { font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+  color: var(--mute); margin-bottom: 8px; }
+.keyreveal .k-value { font-size: 15px; color: var(--teal); overflow-wrap: anywhere;
+  word-break: break-all; user-select: all; }
+.keyreveal .k-actions { margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap; }
+.keyreveal .k-warn { margin-top: 12px; font-size: 12px; color: var(--brick); }
+
+/* directory table */
+table.board { width: 100%; border-collapse: collapse; }
+table.board th {
+  text-align: left; font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+  color: var(--mute); font-weight: 400; padding: 8px 10px; border-bottom: 1px solid var(--edge);
+}
+table.board td { padding: 10px; border-bottom: 1px solid var(--edge); font-size: 14px; }
+table.board .u { color: var(--paper); }
+table.board .k { color: var(--mute); max-width: 360px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: bottom; }
+table.board .ops { display: flex; gap: 8px; justify-content: flex-end; }
+.empty { color: var(--mute); padding: 20px 0; }
+a.keylink { color: var(--paper); }
+a.keylink:hover { color: var(--amber); }
+
+.hidden { display: none !important; }
+
+.foot { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--edge);
+  color: var(--mute); font-size: 12px; display: flex; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap; }
+.foot a { color: var(--mute); }
+.foot a:hover { color: var(--amber); }
+
+@media (max-width: 640px) {
+  .rail { flex-direction: column; align-items: flex-start; }
+  .milestones { flex-wrap: wrap; }
+  .panel { padding: 18px 16px; }
+  .handshake { padding-top: 14px; }
+}
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <header class="rail">
+    <div class="brand">
+      <span class="brand-mark">&#9676;&#9676;</span>
+      <span class="brand-name">Thrain</span>
+      <span class="brand-tag">diffie-hellman file transfer</span>
+    </div>
+    <nav class="nav" aria-label="Sections">
+      <button data-nav="register" class="active">Register</button>
+      <button data-nav="directory">Directory</button>
+      <button data-nav="encrypt">Encrypt</button>
+      <button data-nav="decrypt">Decrypt</button>
+    </nav>
+  </header>
+
+  <section class="handshake" id="handshake" aria-hidden="true">
+    <span class="hs-node" id="hs-you">You</span>
+    <span class="hs-run"><i class="dash d1"></i><i class="dash d2"></i></span>
+    <span class="hs-key" id="hs-key"><b>Shared key</b></span>
+    <span class="hs-run"><i class="dash d3"></i><i class="dash d4"></i></span>
+    <span class="hs-node" id="hs-peer">Peer</span>
+  </section>
+
+  <main>
+    <div class="milestones" aria-hidden="true">
+      <span class="mstep" data-step="0">Register</span>
+      <span class="mstep" data-step="1">My keys</span>
+      <span class="mstep" data-step="2">Exchange</span>
+      <span class="mstep" data-step="3">Encrypt</span>
+      <span class="mstep" data-step="4">Send</span>
+    </div>
+
+    <!-- ================= REGISTER ================= -->
+    <section class="view active" id="view-register">
+      <div class="panel">
+        <h1>Put yourself on the <b>board</b></h1>
+        <p class="lede">One registration generates a keypair. Your <code>public key</code> goes into the
+          directory so others can exchange secrets with you. Your <code>private key</code> is yours alone —
+          it is shown once and never stored.</p>
+
+        <form id="reg-form">
+          <label class="field"><span>username</span>
+            <input type="text" name="username" required autocomplete="off" placeholder="how the board knows you"></label>
+          <div class="row2">
+            <label class="field"><span>first name</span>
+              <input type="text" name="first-name" required autocomplete="off"></label>
+            <label class="field"><span>last name</span>
+              <input type="text" name="last-name" required autocomplete="off"></label>
+          </div>
+          <button class="action" type="submit" id="reg-btn">Register &amp; get my keys</button>
+          <div class="status" id="reg-status"></div>
+        </form>
+
+        <div id="reg-keyreveal" class="keyreveal hidden">
+          <div class="k-label">your one-time private key</div>
+          <div class="k-value" id="reg-privatekey"></div>
+          <div class="k-actions">
+            <button class="ghost" id="reg-copy">Copy the key</button>
+            <button class="ghost" id="reg-ownkey">Continue to the directory</button>
+          </div>
+          <div class="k-warn">Save this key somewhere safe before leaving this view. We keep no backup of it —
+            it cannot be recovered. Refrain from sharing it.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= DIRECTORY ================= -->
+    <section class="view" id="view-directory">
+      <div class="panel">
+        <h1>Who's on the <b>board</b></h1>
+        <p class="lede">Take the public key of the person you want to reach, or pick one to encrypt a file to.</p>
+        <div id="dir-status" class="status"></div>
+        <table class="board" id="board">
+          <thead><tr><th>User</th><th>Public key</th><th></th></tr></thead>
+          <tbody id="board-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ================= ENCRYPT ================= -->
+    <section class="view" id="view-encrypt">
+      <div class="panel">
+        <h1>Encrypt a file <b>to someone</b></h1>
+        <p class="lede">The file is encrypted right here with your private key and the receiver's public key.
+          You get the encrypted file back and decide yourself whether to put it in the directory.</p>
+
+        <form id="enc-form">
+          <label class="field"><span>the file <em>(.txt)</em></span>
+            <div class="file-pick"><input type="file" name="file" id="enc-file" accept=".txt,text/plain" required></div></label>
+          <label class="field"><span>receiver's public key</span>
+            <select id="enc-peer" class="no-fill"></select></label>
+          <label class="field"><span>…or paste the receiver's public key</span>
+            <textarea class="key-input" id="enc-pub" placeholder="paste the key here — picks from the directory above"> </textarea></label>
+          <label class="field"><span>your private key</span>
+            <textarea class="key-input" id="enc-priv" placeholder="the one-time key you saved at registration"></textarea></label>
+          <button class="action" type="submit" id="enc-btn">Encrypt &amp; download</button>
+          <div class="status" id="enc-status"></div>
+        </form>
+
+        <div id="enc-result" class="keyreveal hidden">
+          <div class="k-label">encrypted — your move</div>
+          <div class="k-actions">
+            <button class="ghost" id="enc-dl">Download the encrypted file</button>
+            <button class="ghost" id="enc-upload">Upload it to the directory</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= DECRYPT ================= -->
+    <section class="view" id="view-decrypt">
+      <div class="panel">
+        <h1>Decrypt a file <b>sent to you</b></h1>
+        <p class="lede">Give the sender's public key and your own private key. The shared key is
+          re-derived on the spot — nothing secret leaves your machine beyond what the maths already reveals.</p>
+
+        <form id="dec-form">
+          <label class="field"><span>the encrypted file <em>(.txt)</em></span>
+            <div class="file-pick"><input type="file" name="file" id="dec-file" accept=".txt,text/plain" required></div></label>
+          <label class="field"><span>sender's public key</span>
+            <select id="dec-peer" class="no-fill"></select></label>
+          <label class="field"><span>…or paste the sender's public key</span>
+            <textarea class="key-input" id="dec-pub" placeholder="paste the key here — picks from the directory above"> </textarea></label>
+          <label class="field"><span>your private key</span>
+            <textarea class="key-input" id="dec-priv" placeholder="the one-time key you saved at registration"></textarea></label>
+          <button class="action" type="submit" id="dec-btn">Decrypt &amp; download</button>
+          <div class="status" id="dec-status"></div>
+        </form>
+      </div>
+    </section>
+
+    <footer class="foot">
+      <span>Academic project — key material is held in plain pickle files; not production-safe.</span>
+      <span><a href="/retrieve/app">Offline desktop app</a></span>
+    </footer>
+  </main>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var $ = function (s) { return document.querySelector(s); };
+
+  /* ---------------- view switching (no full-page reload) ---------------- */
+  var views = ["register", "directory", "encrypt", "decrypt"];
+  var navBtns = Array.prototype.slice.call(document.querySelectorAll("[data-nav]"));
+  function showView(name) {
+    views.forEach(function (v) {
+      $("#view-" + v).classList.toggle("active", v === name);
+    });
+    navBtns.forEach(function (b) { b.classList.toggle("active", b.dataset.nav === name); });
+  }
+  navBtns.forEach(function (b) {
+    b.addEventListener("click", function () { showView(b.dataset.nav); });
+  });
+
+  /* ------------------------- milestone strip ------------------------- */
+  var steps = Array.prototype.slice.call(document.querySelectorAll(".mstep"));
+  function setMilestone(idx) {
+    steps.forEach(function (s, i) {
+      s.classList.toggle("done", i < idx);
+      s.classList.toggle("active", i === idx);
+    });
+  }
+
+  /* ------------------------- the handshake ------------------------- */
+  var hs = $("#handshake");
+  var hsKey = $("#hs-key");
+  function runHandshake() {
+    hs.classList.remove("exchanging");
+    hsKey.classList.remove("derived");
+    void hs.offsetWidth; /* restart the animation */
+    hs.classList.add("exchanging");
+    setTimeout(function () {
+      hs.classList.remove("exchanging");
+      hsKey.classList.add("derived");
+    }, 1300);
+  }
+
+  /* ------------------------- shared helpers ------------------------- */
+  function downloadBlob(blob, filename) {
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url; a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+  }
+  function stemOf(name) { return (name || "file").replace(/\.[^.]+$/, ""); }
+  function setStatus(el, msg, kind) {
+    el.textContent = (msg || "");
+    el.className = "status" + (kind === "ok" ? " ok" : kind === "err" ? " err" : "");
+  }
+  function readKeys(json) { /* json: [{username, public_key, url}] */
+    var out = {};
+    (json || []).forEach(function (u) { out[u.username] = u; });
+    return out;
+  }
+
+  /* ------------------------- directory ------------------------- */
+  var DIRECTORY = {};
+  function loadDirectory() {
+    fetch("/api/public-keys")
+      .then(function (r) { return r.json(); })
+      .then(function (json) {
+        DIRECTORY = readKeys(json);
+        var body = $("#board-body");
+        body.textContent = "";
+        if (!json.length) {
+          $("#dir-status").textContent = "No one on the board yet — register a user first.";
+          return;
+        }
+        $("#dir-status").textContent = "";
+        fillPeerSelects();
+        json.forEach(function (u) {
+          var tr = document.createElement("tr");
+          var tdName = document.createElement("td");
+          tdName.className = "u";
+          tdName.textContent = u.username;
+          var tdKey = document.createElement("td");
+          var span = document.createElement("span");
+          span.className = "k";
+          span.title = u.public_key || "";
+          span.textContent = (u.public_key || "(key file missing)");
+          tdKey.appendChild(span);
+          var tdOps = document.createElement("td");
+          var ops = document.createElement("div");
+          ops.className = "ops";
+          var dl = document.createElement("button");
+          dl.className = "ghost";
+          dl.textContent = "Get key";
+          dl.addEventListener("click", function () { window.location = u.url; });
+          var use = document.createElement("button");
+          use.className = "ghost";
+          use.textContent = "Encrypt to this user";
+          use.addEventListener("click", function () {
+            $("#enc-pub").value = u.public_key || "";
+            showView("encrypt");
+            setMilestone(2);
+          });
+          ops.appendChild(dl); ops.appendChild(use);
+          tdOps.appendChild(ops);
+          tr.appendChild(tdName); tr.appendChild(tdKey); tr.appendChild(tdOps);
+          body.appendChild(tr);
+        });
+      })
+      .catch(function () {
+        $("#dir-status").textContent = "Could not load the directory.";
+        $("#dir-status").className = "status err";
+      });
+  }
+  function fillPeerSelects() {
+    ["enc-peer", "dec-peer"].forEach(function (id) {
+      var sel = $("#" + id);
+      var current = sel.value;
+      sel.textContent = "";
+      var none = document.createElement("option");
+      none.value = "";
+      none.textContent = "…or choose from the directory";
+      sel.appendChild(none);
+      Object.keys(DIRECTORY).forEach(function (u) {
+        var o = document.createElement("option");
+        o.value = u; o.textContent = u;
+        sel.appendChild(o);
+      });
+      sel.value = current || "";
+    });
+  }
+  ["enc-peer", "dec-peer"].forEach(function (id) {
+    $("#" + id).addEventListener("change", function (e) {
+      var u = e.target.value;
+      if (!u) return;
+      var box = id === "enc-peer" ? "#enc-pub" : "#dec-pub";
+      $(box).value = DIRECTORY[u].public_key || "";
+    });
+  });
+
+  /* ------------------------- register ------------------------- */
+  $("#reg-form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var btn = $("#reg-btn");
+    var fd = new FormData($("#reg-form"));
+    btn.disabled = true;
+    setStatus($("#reg-status"), "Generating a keypair…");
+    fetch("/api/register", { method: "POST", body: fd })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) {
+        if (!res.ok) { throw new Error(res.j.error || "Registration failed"); }
+        setStatus($("#reg-status"), "Registered. Your public key is in the directory.", "ok");
+        $("#reg-privatekey").textContent = res.j.private_key;
+        $("#reg-keyreveal").classList.remove("hidden");
+        setMilestone(1);
+        loadDirectory();
+      })
+      .catch(function (err) {
+        setStatus($("#reg-status"), "" + err.message, "err");
+      })
+      .finally(function () { btn.disabled = false; });
+  });
+  $("#reg-copy").addEventListener("click", function () {
+    var key = $("#reg-privatekey").textContent;
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(key).then(function () {
+        setStatus($("#reg-status"), "Private key copied.", "ok");
+      });
+    } else {
+      setStatus($("#reg-status"), "This browser has no clipboard access — select and copy the key manually.", "err");
+    }
+  });
+  $("#reg-ownkey").addEventListener("click", function () {
+    setMilestone(2);
+    showView("directory");
+  });
+
+  /* ------------------------- encrypt ------------------------- */
+  var lastEncBlob = null;
+  var lastEncName = "";
+  $("#enc-form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var btn = $("#enc-btn");
+    var fd = new FormData($("#enc-form"));
+    fd.set("public-key", $("#enc-pub").value.trim());
+    fd.set("private-key", $("#enc-priv").value.trim());
+    if (!fd.get("public-key") || !fd.get("private-key")) {
+      setStatus($("#enc-status"), "Both keys are needed before anything is encrypted.", "err");
+      return;
+    }
+    btn.disabled = true;
+    setStatus($("#enc-status"), "Deriving the shared key and encrypting…");
+    fetch("/encrypt", { method: "POST", body: fd })
+      .then(function (r) {
+        if (!r.ok) { return r.json().then(function (j) { throw new Error(j.error || "Encryption failed"); }); }
+        lastEncBlob = r.blob();
+        return lastEncBlob;
+      })
+      .then(function () {
+        setStatus($("#enc-status"), "Encrypted. The file is ready on your side.", "ok");
+        $("#enc-result").classList.remove("hidden");
+        var peer = DIRECTORY[$("#enc-peer").value] ? $("#enc-peer").value : "peer";
+        runHandshake();
+        lastEncName = stemOf($("#enc-file").files[0].name) + "-encrypted.txt";
+        setMilestone(4);
+      })
+      .catch(function (err) {
+        setStatus($("#enc-status"), "" + err.message, "err");
+      })
+      .finally(function () { btn.disabled = false; });
+  });
+  $("#enc-dl").addEventListener("click", function () {
+    if (lastEncBlob) { downloadBlob(lastEncBlob, lastEncName); }
+  });
+  $("#enc-upload").addEventListener("click", function () {
+    if (!lastEncBlob) { return; }
+    var fd = new FormData();
+    fd.append("file", lastEncBlob, lastEncName);
+    var btn = this;
+    btn.disabled = true;
+    fetch("/data", { method: "POST", body: fd })
+      .then(function (r) {
+        if (!r.ok) { throw new Error("Upload failed (" + r.status + ")"); }
+        setStatus($("#enc-status"), "Uploaded to the directory. The receiver can pull it from Decrypt.", "ok");
+        setMilestone(5);
+      })
+      .catch(function (err) { setStatus($("#enc-status"), "" + err.message, "err"); })
+      .finally(function () { btn.disabled = false; });
+  });
+
+  /* ------------------------- decrypt ------------------------- */
+  $("#dec-form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var btn = $("#dec-btn");
+    var fd = new FormData($("#dec-form"));
+    fd.set("public-key", $("#dec-pub").value.trim());
+    fd.set("private-key", $("#dec-priv").value.trim());
+    if (!fd.get("public-key") || !fd.get("private-key")) {
+      setStatus($("#dec-status"), "Both keys are needed before anything is decrypted.", "err");
+      return;
+    }
+    btn.disabled = true;
+    setStatus($("#dec-status"), "Re-deriving the shared key and decrypting…");
+    fetch("/decrypt", { method: "POST", body: fd })
+      .then(function (r) {
+        if (!r.ok) { return r.json().then(function (j) { throw new Error(j.error || "Decryption failed"); }); }
+        return r.blob();
+      })
+      .then(function (blob) {
+        setStatus($("#dec-status"), "Decrypted. The plain file is yours again.", "ok");
+        runHandshake();
+        setMilestone(4);
+        downloadBlob(blob, stemOf($("#dec-file").files[0].name) + "-decrypted.txt");
+      })
+      .catch(function (err) {
+        setStatus($("#dec-status"), "" + err.message, "err");
+      })
+      .finally(function () { btn.disabled = false; });
+  });
+
+  /* ------------------------- boot ------------------------- */
+  loadDirectory();
+})();
+</script>
+</body>
+</html>

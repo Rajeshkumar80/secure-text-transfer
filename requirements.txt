@@ -1,0 +1,4 @@
+Flask==2.3.3
+Werkzeug==3.0.3
+pycryptodome==3.23.0
+gunicorn==20.1.0
