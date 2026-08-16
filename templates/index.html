@@ -563,15 +563,15 @@ a.keylink:hover { color: var(--amber); }
     fetch("/encrypt", { method: "POST", body: fd })
       .then(function (r) {
         if (!r.ok) { return r.json().then(function (j) { throw new Error(j.error || "Encryption failed"); }); }
-        lastEncBlob = r.blob();
-        return lastEncBlob;
+        return r.blob();
       })
-      .then(function () {
+      .then(function (blob) {
+        lastEncBlob = blob;
+        lastEncName = stemOf($("#enc-file").files[0].name) + "-encrypted.txt";
         setStatus($("#enc-status"), "Encrypted. The file is ready on your side.", "ok");
         $("#enc-result").classList.remove("hidden");
         var peer = DIRECTORY[$("#enc-peer").value] ? $("#enc-peer").value : "peer";
         runHandshake();
-        lastEncName = stemOf($("#enc-file").files[0].name) + "-encrypted.txt";
         setMilestone(4);
       })
       .catch(function (err) {

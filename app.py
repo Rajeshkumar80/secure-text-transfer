@@ -15,6 +15,7 @@ ALLOWED_EXTENSIONS = set(['txt'])
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', '5f2c9a41e8b74d06a3c1f9e0b2d8a7c6')
 
 def allowed_file(filename):
 	return '.' in filename and \
@@ -164,6 +165,8 @@ def encrypt_route():
 		temp_path, err = _save_upload(request.files, 'file')
 		if err:
 			return {'error': err}, 400
+		if not allowed_file(secure_filename(request.files['file'].filename)):
+			return {'error': 'Only .txt files are accepted'}, 400
 		their_public = _form_key(request.form, 'public-key')
 		my_private = _form_key(request.form, 'private-key')
 		key = crypto_service.derive_key(my_private, their_public)
@@ -184,6 +187,8 @@ def decrypt_route():
 		temp_path, err = _save_upload(request.files, 'file')
 		if err:
 			return {'error': err}, 400
+		if not allowed_file(secure_filename(request.files['file'].filename)):
+			return {'error': 'Only .txt files are accepted'}, 400
 		their_public = _form_key(request.form, 'public-key')
 		my_private = _form_key(request.form, 'private-key')
 		key = crypto_service.derive_key(my_private, their_public)
